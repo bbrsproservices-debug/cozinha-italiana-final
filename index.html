@@ -1104,6 +1104,9 @@
     let checkoutLock = false;
     let backModalOpen = false;
     let backOfferStep = 0;
+    let backHistoryArmed = false;
+    let mobileGestureRearmed = false;
+    let lastBackEventAt = 0;
 
     function trackCheckout(value, label) {
       try {
@@ -1161,6 +1164,11 @@
     }
 
     function closeBackOffer() {
+      if (backOfferStep >= 2) {
+        goToCheckout(BACK_CHECKOUT_2, 14.90, 'Back Redirect 2 - Fechou a ultima oferta');
+        return;
+      }
+
       const modal = document.getElementById('backOffer');
       if (!modal) return;
       backModalOpen = false;
@@ -1168,10 +1176,39 @@
       modal.setAttribute('aria-hidden', 'true');
     }
 
+    function getBackBaseUrl() {
+      return location.href.split('#')[0];
+    }
+
     function armBackGuard(level) {
       try {
-        history.pushState({ backRedirectLevel: level }, '', location.href);
+        history.pushState({ backRedirectLevel: level }, '', getBackBaseUrl() + '#back-' + level);
       } catch(e) {}
+    }
+
+    function armBackHistory(force) {
+      if (backHistoryArmed && !force) return;
+
+      try {
+        history.replaceState({ backRedirectLevel: 0 }, '', getBackBaseUrl());
+        armBackGuard(1);
+        armBackGuard(2);
+        armBackGuard(3);
+        backHistoryArmed = true;
+      } catch(e) {}
+    }
+
+    function handleBackAttempt(source) {
+      const now = Date.now();
+      if (now - lastBackEventAt < 250) return;
+      lastBackEventAt = now;
+      advanceBackOffer(source);
+    }
+
+    function rearmBackAfterMobileGesture() {
+      if (mobileGestureRearmed || checkoutLock || backOfferStep > 0) return;
+      mobileGestureRearmed = true;
+      armBackHistory(true);
     }
 
     function advanceBackOffer(source) {
@@ -1196,13 +1233,14 @@
     function setupBackRedirect() {
       if (!window.history || !window.history.pushState) return;
 
-      history.replaceState({ backRedirectLevel: 0 }, '', location.href);
-      armBackGuard(1);
-      armBackGuard(2);
-      armBackGuard(3);
+      armBackHistory(false);
 
       window.addEventListener('popstate', function(){
-        advanceBackOffer('back');
+        handleBackAttempt('back');
+      });
+
+      window.addEventListener('hashchange', function(){
+        handleBackAttempt('hash');
       });
 
       document.addEventListener('mouseleave', function(event){
@@ -1211,6 +1249,10 @@
           advanceBackOffer('exit');
         }
       });
+
+      window.addEventListener('touchstart', rearmBackAfterMobileGesture, { once: true, passive: true });
+      window.addEventListener('pointerdown', rearmBackAfterMobileGesture, { once: true, passive: true });
+      window.addEventListener('scroll', rearmBackAfterMobileGesture, { once: true, passive: true });
     }
 
     window.addEventListener('DOMContentLoaded', setupBackRedirect);
